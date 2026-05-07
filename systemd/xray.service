@@ -1,0 +1,13 @@
+[Unit]
+Description=Xray Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/xray run -config /etc/quick-vless/xray-config.json
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
