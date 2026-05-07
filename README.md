@@ -1,4 +1,4 @@
-# quick-vless
+# quick-node
 
 Rust CLI tool for managing VLESS + Reality proxy nodes on Linux VPS.
 
@@ -16,13 +16,13 @@ One command to init, one command to create a user — get three share links inst
 
 ```bash
 # Install on a fresh VPS (as root)
-curl -sSL https://raw.githubusercontent.com/123hi123/quick-vless/master/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/123hi123/quick-node/master/install.sh | bash
 
 # Initialize node
-quick-vless init --port 443 --sni www.microsoft.com
+quick-node init --port 443 --sni www.microsoft.com
 
 # Create a user (outputs 3 links)
-quick-vless user add joe --expires 30d --traffic-limit 100GB
+quick-node user add joe --expires 30d --traffic-limit 100GB
 ```
 
 Output:
@@ -44,19 +44,19 @@ SOCKS5:
 
 | Command | Description |
 |---------|-------------|
-| `quick-vless init` | Download Xray-core, generate Reality keys, setup systemd |
-| `quick-vless user add <name>` | Create user, output 3 share links |
-| `quick-vless user list` | List all users with traffic stats |
-| `quick-vless user remove <name>` | Remove a user |
-| `quick-vless refresh` | Re-detect public IP, update all links |
-| `quick-vless status` | Show server status |
-| `quick-vless serve` | Start HTTP subscription server |
-| `quick-vless check` | Check traffic/expiry (called by timer) |
+| `quick-node init` | Download Xray-core, generate Reality keys, setup systemd |
+| `quick-node user add <name>` | Create user, output 3 share links |
+| `quick-node user list` | List all users with traffic stats |
+| `quick-node user remove <name>` | Remove a user |
+| `quick-node refresh` | Re-detect public IP, update all links |
+| `quick-node status` | Show server status |
+| `quick-node serve` | Start HTTP subscription server |
+| `quick-node check` | Check traffic/expiry (called by timer) |
 
 ### Init Options
 
 ```
-quick-vless init [OPTIONS]
+quick-node init [OPTIONS]
   -p, --port <PORT>              VLESS port [default: 443]
   -s, --sni <SNI>                Reality SNI target [default: www.microsoft.com]
       --socks-port <SOCKS_PORT>  SOCKS5 port [default: 1080]
@@ -67,7 +67,7 @@ quick-vless init [OPTIONS]
 ### User Add Options
 
 ```
-quick-vless user add <NAME> [OPTIONS]
+quick-node user add <NAME> [OPTIONS]
   -e, --expires <EXPIRES>              Duration: 30d, 6h, 1w, 0=never [default: 30d]
   -t, --traffic-limit <TRAFFIC_LIMIT>  Limit: 100GB, 500MB, 0=unlimited [default: 0]
 ```
@@ -75,7 +75,7 @@ quick-vless user add <NAME> [OPTIONS]
 ## Architecture
 
 ```
-quick-vless (single Rust binary)
+quick-node (single Rust binary)
 │
 ├── Xray-core (VLESS + Reality + SOCKS5 inbounds)
 │   ├── port 443  → VLESS + Reality (TCP, Vision flow)
@@ -85,15 +85,15 @@ quick-vless (single Rust binary)
 │   └── port 8443 → GET /sub/{token} → Clash YAML
 │
 └── systemd timer (every 10min)
-    └── quick-vless check → enforce traffic limits & expiry
+    └── quick-node check → enforce traffic limits & expiry
 ```
 
 ### Files on VPS
 
 ```
-/usr/local/bin/quick-vless          # CLI binary
+/usr/local/bin/quick-node          # CLI binary
 /usr/local/bin/xray                 # Xray-core
-/etc/quick-vless/
+/etc/quick-node/
 ├── config.json                     # Node config (IP, keys, ports)
 ├── users.json                      # User state (traffic, expiry)
 ├── xray-config.json                # Generated Xray config
