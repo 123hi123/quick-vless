@@ -27,6 +27,10 @@ enum Commands {
         #[arg(short, long, default_value = "443")]
         port: u16,
 
+        /// SOCKS5 listen port
+        #[arg(long, default_value = "1080")]
+        socks_port: u16,
+
         /// HTTP subscription server port
         #[arg(long, default_value = "8443")]
         sub_port: u16,
@@ -86,9 +90,10 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Init {
             port,
+            socks_port,
             sub_port,
             ip,
-        } => cmd_init(port, sub_port, ip)?,
+        } => cmd_init(port, socks_port, sub_port, ip)?,
 
         Commands::User { command } => match command {
             UserCommands::Add {
@@ -112,7 +117,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn cmd_init(port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
+fn cmd_init(port: u16, socks_port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
     println!("{}", "=== Quick-Node Init ===".bold());
 
     let server_ip = match ip {
@@ -132,6 +137,8 @@ fn cmd_init(port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
     let config = AppConfig {
         server_ip,
         hy_port: port,
+        socks_port,
+        socks_pass: singbox::generate_password(),
         sub_port,
     };
 
@@ -145,6 +152,7 @@ fn cmd_init(port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
     println!();
     println!("{}", "=== Init Complete ===".green().bold());
     println!("  Hysteria2:  port {} (UDP)", port);
+    println!("  SOCKS5:     port {}", socks_port);
     println!("  Sub port:   {}", sub_port);
     println!("  Protocol:   Hysteria2 (QUIC)");
     println!();
@@ -310,6 +318,7 @@ fn cmd_status() -> Result<()> {
     );
     println!("  Server:     {}", config.server_ip);
     println!("  Hysteria2:  port {} (UDP)", config.hy_port);
+    println!("  SOCKS5:     port {}", config.socks_port);
     println!("  Sub HTTP:   port {}", config.sub_port);
     println!("  Protocol:   Hysteria2 (QUIC)");
     println!();

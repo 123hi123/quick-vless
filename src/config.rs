@@ -12,6 +12,8 @@ const SINGBOX_CONFIG_PATH: &str = "/etc/quick-node/singbox-config.json";
 pub struct AppConfig {
     pub server_ip: String,
     pub hy_port: u16,
+    pub socks_port: u16,
+    pub socks_pass: String,
     pub sub_port: u16,
 }
 
@@ -41,18 +43,27 @@ impl AppConfig {
             .collect();
 
         let config = json!({
-            "inbounds": [{
-                "type": "hysteria2",
-                "tag": "hy2-in",
-                "listen": "::",
-                "listen_port": self.hy_port,
-                "users": user_list,
-                "tls": {
-                    "enabled": true,
-                    "certificate_path": format!("{}/cert.pem", CONFIG_DIR),
-                    "key_path": format!("{}/key.pem", CONFIG_DIR)
+            "inbounds": [
+                {
+                    "type": "hysteria2",
+                    "tag": "hy2-in",
+                    "listen": "::",
+                    "listen_port": self.hy_port,
+                    "users": user_list,
+                    "tls": {
+                        "enabled": true,
+                        "certificate_path": format!("{}/cert.pem", CONFIG_DIR),
+                        "key_path": format!("{}/key.pem", CONFIG_DIR)
+                    }
+                },
+                {
+                    "type": "socks",
+                    "tag": "socks-in",
+                    "listen": "::",
+                    "listen_port": self.socks_port,
+                    "users": [{"username": "proxy", "password": self.socks_pass.as_str()}]
                 }
-            }],
+            ],
             "outbounds": [{"type": "direct", "tag": "direct"}]
         });
 

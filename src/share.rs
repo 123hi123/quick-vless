@@ -79,6 +79,13 @@ pub fn save_all_clash_subs(config: &AppConfig, users: &[User]) -> anyhow::Result
     Ok(())
 }
 
+pub fn socks5_url(config: &AppConfig) -> String {
+    format!(
+        "socks5://proxy:{}@{}:{}",
+        config.socks_pass, config.server_ip, config.socks_port
+    )
+}
+
 pub fn print_links(config: &AppConfig, user: &User) {
     use colored::Colorize;
 
@@ -87,6 +94,9 @@ pub fn print_links(config: &AppConfig, user: &User) {
     println!();
     println!("{}", "Hysteria2:".cyan().bold());
     println!("  {}", hy2_url(config, user));
+    println!();
+    println!("{}", "SOCKS5:".yellow().bold());
+    println!("  {}", socks5_url(config));
     println!();
     println!("{}", "Clash Subscribe:".green().bold());
     println!("  {}", clash_sub_url(config, user));

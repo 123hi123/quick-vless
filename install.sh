@@ -34,6 +34,6 @@ chmod +x "$INSTALL_DIR/$BIN_NAME"
 echo "$BIN_NAME installed to $INSTALL_DIR/$BIN_NAME"
 echo
 echo "Next steps:"
-echo "  1. quick-node init --port 8388"
+echo "  1. quick-node init"
 echo "  2. quick-node user add <name> --expires 30d"
 echo
