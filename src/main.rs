@@ -2,7 +2,7 @@ mod check;
 mod config;
 mod serve;
 mod share;
-mod ss;
+mod singbox;
 mod user;
 
 use anyhow::Result;
@@ -13,7 +13,7 @@ use config::AppConfig;
 use user::UsersState;
 
 #[derive(Parser)]
-#[command(name = "quick-node", version, about = "Manage Shadowsocks 2022 proxy nodes")]
+#[command(name = "quick-node", version, about = "Manage Hysteria2 proxy nodes")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -21,15 +21,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize: download ssserver + sslocal, generate keys, setup systemd
+    /// Initialize: download sing-box, generate TLS cert, setup systemd
     Init {
-        /// Shadowsocks listen port
-        #[arg(short, long, default_value = "8388")]
+        /// Hysteria2 listen port (UDP)
+        #[arg(short, long, default_value = "443")]
         port: u16,
-
-        /// SOCKS5 listen port (via sslocal)
-        #[arg(long, default_value = "1080")]
-        socks_port: u16,
 
         /// HTTP subscription server port
         #[arg(long, default_value = "8443")]
@@ -90,10 +86,9 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Init {
             port,
-            socks_port,
             sub_port,
             ip,
-        } => cmd_init(port, socks_port, sub_port, ip)?,
+        } => cmd_init(port, sub_port, ip)?,
 
         Commands::User { command } => match command {
             UserCommands::Add {
@@ -117,48 +112,41 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn cmd_init(port: u16, socks_port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
+fn cmd_init(port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
     println!("{}", "=== Quick-Node Init ===".bold());
 
     let server_ip = match ip {
         Some(ip) => ip,
         None => {
             println!("Detecting public IP...");
-            ss::detect_public_ip()?
+            singbox::detect_public_ip()?
         }
     };
     println!("Server IP: {}", server_ip.green());
 
-    ss::download_ssserver()?;
+    singbox::download_singbox()?;
 
-    println!("Generating keys...");
-    let server_key = ss::generate_key();
-    let socks_key = ss::generate_key();
+    std::fs::create_dir_all(AppConfig::config_dir())?;
+    singbox::generate_tls_cert()?;
 
     let config = AppConfig {
         server_ip,
-        ss_port: port,
-        server_key: server_key.clone(),
-        socks_port,
-        socks_key,
+        hy_port: port,
         sub_port,
     };
 
     config.save()?;
     UsersState::init()?;
-    config.generate_ss_config()?;
-    config.generate_sslocal_config()?;
+    config.generate_singbox_config(&[])?;
 
     println!("Installing systemd units...");
-    ss::install_systemd_units()?;
+    singbox::install_systemd_units()?;
 
     println!();
     println!("{}", "=== Init Complete ===".green().bold());
-    println!("  SS port:    {}", port);
-    println!("  SOCKS5:     {}", socks_port);
+    println!("  Hysteria2:  port {} (UDP)", port);
     println!("  Sub port:   {}", sub_port);
-    println!("  Method:     2022-blake3-aes-256-gcm");
-    println!("  ServerKey:  {}", server_key);
+    println!("  Protocol:   Hysteria2 (QUIC)");
     println!();
     println!(
         "Next: {} to create a user and get share links",
@@ -181,8 +169,12 @@ fn cmd_user_add(name: &str, expires_str: &str, traffic_str: &str) -> Result<()> 
     let _user = state.add(name, expires_at, traffic_limit)?;
     state.save()?;
 
+    config.generate_singbox_config(&state.users)?;
+
     let user = state.find(name).unwrap();
     share::save_clash_sub(&config, user)?;
+
+    singbox::restart()?;
 
     share::print_links(&config, user);
 
@@ -254,13 +246,18 @@ fn cmd_user_list() -> Result<()> {
 }
 
 fn cmd_user_remove(name: &str) -> Result<()> {
+    let config = AppConfig::load()?;
     let mut state = UsersState::load()?;
 
     let removed = state.remove(name)?;
     state.save()?;
 
+    config.generate_singbox_config(&state.users)?;
+
     let sub_path = format!("{}/subs/{}.yaml", AppConfig::config_dir(), removed.sub_token);
     let _ = std::fs::remove_file(sub_path);
+
+    singbox::restart()?;
 
     println!("User '{}' removed.", name.yellow());
     Ok(())
@@ -271,7 +268,7 @@ fn cmd_refresh() -> Result<()> {
     let state = UsersState::load()?;
 
     println!("Detecting public IP...");
-    let new_ip = ss::detect_public_ip()?;
+    let new_ip = singbox::detect_public_ip()?;
 
     if new_ip == config.server_ip {
         println!("IP unchanged: {}", new_ip.green());
@@ -299,33 +296,22 @@ fn cmd_status() -> Result<()> {
     let config = AppConfig::load()?;
     let state = UsersState::load()?;
 
-    let ss_running = ss::ss_status()?;
+    let running = singbox::status()?;
 
     println!("{}", "=== Quick-Node Status ===".bold());
     println!();
-    let socks_running = ss::sslocal_status()?;
-
     println!(
-        "  ssserver: {}",
-        if ss_running {
+        "  sing-box:   {}",
+        if running {
             "running".green()
         } else {
             "stopped".red()
         }
     );
-    println!(
-        "  sslocal:  {}",
-        if socks_running {
-            "running".green()
-        } else {
-            "stopped".red()
-        }
-    );
-    println!("  Server:   {}", config.server_ip);
-    println!("  SS port:  {}", config.ss_port);
-    println!("  SOCKS5:   port {}", config.socks_port);
-    println!("  Sub HTTP: port {}", config.sub_port);
-    println!("  Method:   2022-blake3-aes-256-gcm");
+    println!("  Server:     {}", config.server_ip);
+    println!("  Hysteria2:  port {} (UDP)", config.hy_port);
+    println!("  Sub HTTP:   port {}", config.sub_port);
+    println!("  Protocol:   Hysteria2 (QUIC)");
     println!();
 
     let total = state.users.len();

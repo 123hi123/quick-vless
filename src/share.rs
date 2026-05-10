@@ -1,17 +1,10 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-
 use crate::config::AppConfig;
 use crate::user::User;
 
-pub fn ss_url(config: &AppConfig, user: &User) -> String {
-    let userinfo = format!(
-        "2022-blake3-aes-256-gcm:{}",
-        config.server_key
-    );
-    let encoded = URL_SAFE_NO_PAD.encode(userinfo.as_bytes());
+pub fn hy2_url(config: &AppConfig, user: &User) -> String {
     format!(
-        "ss://{}@{}:{}#{}",
-        encoded, config.server_ip, config.ss_port, user.name
+        "hysteria2://{}@{}:{}/?insecure=1#{}",
+        user.password, config.server_ip, config.hy_port, user.name
     )
 }
 
@@ -24,21 +17,20 @@ pub fn clash_sub_url(config: &AppConfig, user: &User) -> String {
 
 pub fn clash_yaml(config: &AppConfig, user: &User) -> String {
     let proxy_name = format!("qn-{}", user.name);
-    let password = config.server_key.clone();
 
     serde_yaml::to_string(&serde_yaml::Value::Mapping({
         let mut root = serde_yaml::Mapping::new();
 
         let mut proxy = serde_yaml::Mapping::new();
         proxy.insert(y("name"), y(&proxy_name));
-        proxy.insert(y("type"), y("ss"));
+        proxy.insert(y("type"), y("hysteria2"));
         proxy.insert(y("server"), y(&config.server_ip));
         proxy.insert(
             y("port"),
-            serde_yaml::Value::Number(config.ss_port.into()),
+            serde_yaml::Value::Number(config.hy_port.into()),
         );
-        proxy.insert(y("cipher"), y("2022-blake3-aes-256-gcm"));
-        proxy.insert(y("password"), y(&password));
+        proxy.insert(y("password"), y(&user.password));
+        proxy.insert(y("skip-cert-verify"), serde_yaml::Value::Bool(true));
         proxy.insert(y("udp"), serde_yaml::Value::Bool(true));
 
         root.insert(
@@ -87,21 +79,14 @@ pub fn save_all_clash_subs(config: &AppConfig, users: &[User]) -> anyhow::Result
     Ok(())
 }
 
-pub fn socks5_url(config: &AppConfig) -> String {
-    format!("socks5://{}:{}", config.server_ip, config.socks_port)
-}
-
 pub fn print_links(config: &AppConfig, user: &User) {
     use colored::Colorize;
 
     println!();
     println!("{}", format!("=== {} ===", user.name).bold());
     println!();
-    println!("{}", "SS:".cyan().bold());
-    println!("  {}", ss_url(config, user));
-    println!();
-    println!("{}", "SOCKS5:".yellow().bold());
-    println!("  {}", socks5_url(config));
+    println!("{}", "Hysteria2:".cyan().bold());
+    println!("  {}", hy2_url(config, user));
     println!();
     println!("{}", "Clash Subscribe:".green().bold());
     println!("  {}", clash_sub_url(config, user));

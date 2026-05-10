@@ -2,14 +2,14 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ss;
+use crate::singbox;
 
 const USERS_PATH: &str = "/etc/quick-node/users.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub name: String,
-    pub ss_key: String,
+    pub password: String,
     pub created_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
     pub traffic_limit_bytes: u64,
@@ -53,7 +53,7 @@ impl UsersState {
 
         let user = User {
             name: name.to_string(),
-            ss_key: ss::generate_key(),
+            password: singbox::generate_password(),
             created_at: Utc::now(),
             expires_at: expires,
             traffic_limit_bytes: traffic_limit,

@@ -1,12 +1,11 @@
 use anyhow::{bail, Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
 use rand::RngCore;
 use std::process::Command;
 
-pub fn generate_key() -> String {
-    let mut key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key);
-    STANDARD.encode(key)
+pub fn generate_password() -> String {
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 pub fn detect_public_ip() -> Result<String> {
@@ -22,15 +21,45 @@ pub fn detect_public_ip() -> Result<String> {
     Ok(ip)
 }
 
-pub fn download_ssserver() -> Result<()> {
-    println!("Fetching latest shadowsocks-rust release...");
+pub fn generate_tls_cert() -> Result<()> {
+    println!("Generating TLS certificate...");
+    let status = Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-nodes",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:prime256v1",
+            "-days",
+            "3650",
+            "-subj",
+            "/CN=bing.com",
+            "-keyout",
+            "/etc/quick-node/key.pem",
+            "-out",
+            "/etc/quick-node/cert.pem",
+        ])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .context("Failed to run openssl")?;
+
+    if !status.success() {
+        bail!("TLS certificate generation failed");
+    }
+    Ok(())
+}
+
+pub fn download_singbox() -> Result<()> {
+    println!("Fetching latest sing-box release...");
 
     let output = Command::new("curl")
         .args([
             "-sL",
             "-H",
             "Accept: application/json",
-            "https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest",
+            "https://api.github.com/repos/SagerNet/sing-box/releases/latest",
         ])
         .output()
         .context("Failed to query GitHub API")?;
@@ -42,14 +71,15 @@ pub fn download_ssserver() -> Result<()> {
         .as_str()
         .context("Could not find tag_name in release")?;
 
-    let arch = std::env::consts::ARCH;
-    let target = match arch {
-        "x86_64" => "x86_64-unknown-linux-gnu",
-        "aarch64" => "aarch64-unknown-linux-gnu",
-        _ => bail!("Unsupported architecture: {}", arch),
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        _ => bail!("Unsupported architecture: {}", std::env::consts::ARCH),
     };
 
-    let filename = format!("shadowsocks-{}.{}.tar.xz", tag, target);
+    let filename = format!("sing-box-{}-linux-{}.tar.gz", version, arch);
 
     let assets = release["assets"]
         .as_array()
@@ -66,14 +96,14 @@ pub fn download_ssserver() -> Result<()> {
         .context(format!("Asset '{}' not found in release", filename))?
         .to_string();
 
-    let tmp_tar = "/tmp/shadowsocks.tar.xz";
-    let tmp_dir = "/tmp/shadowsocks-extract";
+    let tmp_tar = "/tmp/sing-box.tar.gz";
+    let tmp_dir = "/tmp/sing-box-extract";
 
     println!("Downloading {}...", filename);
     let status = Command::new("curl")
         .args(["-sL", "-o", tmp_tar, &asset_url])
         .status()
-        .context("Failed to download shadowsocks-rust")?;
+        .context("Failed to download sing-box")?;
 
     if !status.success() {
         bail!("Download failed");
@@ -82,72 +112,58 @@ pub fn download_ssserver() -> Result<()> {
     std::fs::create_dir_all(tmp_dir)?;
 
     let status = Command::new("tar")
-        .args(["-xf", tmp_tar, "-C", tmp_dir])
+        .args(["-xzf", tmp_tar, "-C", tmp_dir])
         .status()
-        .context("Failed to extract archive (is 'xz' installed?)")?;
+        .context("Failed to extract archive")?;
 
     if !status.success() {
         bail!("Extraction failed");
     }
 
-    std::fs::copy(format!("{}/ssserver", tmp_dir), "/usr/local/bin/ssserver")?;
-    std::fs::copy(format!("{}/sslocal", tmp_dir), "/usr/local/bin/sslocal")?;
+    let bin_path = format!("{}/sing-box-{}-linux-{}/sing-box", tmp_dir, version, arch);
+    std::fs::copy(&bin_path, "/usr/local/bin/sing-box")?;
     Command::new("chmod")
-        .args(["+x", "/usr/local/bin/ssserver"])
-        .status()?;
-    Command::new("chmod")
-        .args(["+x", "/usr/local/bin/sslocal"])
+        .args(["+x", "/usr/local/bin/sing-box"])
         .status()?;
 
     let _ = std::fs::remove_file(tmp_tar);
     let _ = std::fs::remove_dir_all(tmp_dir);
 
-    println!("ssserver + sslocal installed to /usr/local/bin/");
+    println!("sing-box {} installed to /usr/local/bin/", tag);
     Ok(())
 }
 
-pub fn ss_status() -> Result<bool> {
+pub fn restart() -> Result<()> {
     let status = Command::new("systemctl")
-        .args(["is-active", "--quiet", "ssserver"])
-        .status();
+        .args(["restart", "sing-box"])
+        .status()
+        .context("Failed to restart sing-box")?;
 
-    Ok(status.map(|s| s.success()).unwrap_or(false))
+    if !status.success() {
+        bail!("systemctl restart sing-box failed");
+    }
+    Ok(())
 }
 
-pub fn sslocal_status() -> Result<bool> {
+pub fn status() -> Result<bool> {
     let status = Command::new("systemctl")
-        .args(["is-active", "--quiet", "sslocal"])
+        .args(["is-active", "--quiet", "sing-box"])
         .status();
 
     Ok(status.map(|s| s.success()).unwrap_or(false))
 }
 
 pub fn install_systemd_units() -> Result<()> {
-    let ss_service = r#"[Unit]
-Description=Shadowsocks Server
+    let singbox_service = r#"[Unit]
+Description=sing-box Service
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/ssserver -c /etc/quick-node/ss-config.json
+ExecStart=/usr/local/bin/sing-box run -c /etc/quick-node/singbox-config.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-"#;
-
-    let sslocal_service = r#"[Unit]
-Description=Shadowsocks Local (SOCKS5 Bridge)
-After=ssserver.service
-Requires=ssserver.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/sslocal -c /etc/quick-node/sslocal-config.json
-Restart=on-failure
-RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -187,8 +203,7 @@ Persistent=true
 WantedBy=timers.target
 "#;
 
-    std::fs::write("/etc/systemd/system/ssserver.service", ss_service)?;
-    std::fs::write("/etc/systemd/system/sslocal.service", sslocal_service)?;
+    std::fs::write("/etc/systemd/system/sing-box.service", singbox_service)?;
     std::fs::write(
         "/etc/systemd/system/quick-node-serve.service",
         serve_service,
@@ -204,12 +219,7 @@ WantedBy=timers.target
 
     Command::new("systemctl").arg("daemon-reload").status()?;
 
-    for unit in &[
-        "ssserver",
-        "sslocal",
-        "quick-node-serve",
-        "quick-node-check.timer",
-    ] {
+    for unit in &["sing-box", "quick-node-serve", "quick-node-check.timer"] {
         Command::new("systemctl")
             .args(["enable", "--now", unit])
             .status()?;

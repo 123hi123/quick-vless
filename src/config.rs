@@ -2,18 +2,16 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::user::User;
+
 const CONFIG_DIR: &str = "/etc/quick-node";
 const CONFIG_PATH: &str = "/etc/quick-node/config.json";
-const SS_CONFIG_PATH: &str = "/etc/quick-node/ss-config.json";
-const SSLOCAL_CONFIG_PATH: &str = "/etc/quick-node/sslocal-config.json";
+const SINGBOX_CONFIG_PATH: &str = "/etc/quick-node/singbox-config.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub server_ip: String,
-    pub ss_port: u16,
-    pub server_key: String,
-    pub socks_port: u16,
-    pub socks_key: String,
+    pub hy_port: u16,
     pub sub_port: u16,
 }
 
@@ -35,29 +33,30 @@ impl AppConfig {
         Ok(())
     }
 
-    pub fn generate_ss_config(&self) -> Result<()> {
+    pub fn generate_singbox_config(&self, users: &[User]) -> Result<()> {
+        let user_list: Vec<serde_json::Value> = users
+            .iter()
+            .filter(|u| u.enabled)
+            .map(|u| json!({"name": u.name, "password": u.password}))
+            .collect();
+
         let config = json!({
-            "server": "0.0.0.0",
-            "server_port": self.ss_port,
-            "method": "2022-blake3-aes-256-gcm",
-            "password": self.server_key,
+            "inbounds": [{
+                "type": "hysteria2",
+                "tag": "hy2-in",
+                "listen": "::",
+                "listen_port": self.hy_port,
+                "users": user_list,
+                "tls": {
+                    "enabled": true,
+                    "certificate_path": format!("{}/cert.pem", CONFIG_DIR),
+                    "key_path": format!("{}/key.pem", CONFIG_DIR)
+                }
+            }],
+            "outbounds": [{"type": "direct", "tag": "direct"}]
         });
 
-        std::fs::write(SS_CONFIG_PATH, serde_json::to_string_pretty(&config)?)?;
-        Ok(())
-    }
-
-    pub fn generate_sslocal_config(&self) -> Result<()> {
-        let config = json!({
-            "server": "127.0.0.1",
-            "server_port": self.ss_port,
-            "method": "2022-blake3-aes-256-gcm",
-            "password": self.server_key.as_str(),
-            "local_address": "0.0.0.0",
-            "local_port": self.socks_port
-        });
-
-        std::fs::write(SSLOCAL_CONFIG_PATH, serde_json::to_string_pretty(&config)?)?;
+        std::fs::write(SINGBOX_CONFIG_PATH, serde_json::to_string_pretty(&config)?)?;
         Ok(())
     }
 }

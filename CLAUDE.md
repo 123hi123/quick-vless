@@ -1,6 +1,6 @@
 # Quick-Node
 
-Rust CLI for managing Shadowsocks 2022 proxy nodes (ssserver + sslocal).
+Rust CLI for managing Hysteria2 proxy nodes (sing-box).
 
 ## Release Checklist (MANDATORY before every push)
 
@@ -19,17 +19,21 @@ Before pushing:
 
 ## Architecture
 
-- `ssserver` — Shadowsocks server, 2022-blake3-aes-256-gcm, single-port multi-user
-- `sslocal` — connects to local ssserver via internal `__socks` user, exposes SOCKS5 on port 1080
+- `sing-box` — Hysteria2 server (QUIC), multi-user via password auth, self-signed TLS
 - `quick-node serve` — HTTP server for Clash YAML subscriptions
 - `quick-node check` — systemd timer, enforces user expiry
 
 ## Config paths (on deployed VPS)
 
 ```
-/etc/quick-node/config.json        # AppConfig (IP, keys, ports)
-/etc/quick-node/users.json         # User state
-/etc/quick-node/ss-config.json     # Generated ssserver config
-/etc/quick-node/sslocal-config.json # Generated sslocal config
-/etc/quick-node/subs/*.yaml        # Per-user Clash subscription files
+/etc/quick-node/config.json          # AppConfig (IP, hy_port, sub_port)
+/etc/quick-node/users.json           # User state
+/etc/quick-node/singbox-config.json  # Generated sing-box config
+/etc/quick-node/cert.pem             # Self-signed TLS certificate
+/etc/quick-node/key.pem              # TLS private key
+/etc/quick-node/subs/*.yaml          # Per-user Clash subscription files
 ```
+
+## Firewall
+
+Hysteria2 uses **UDP** (default port 443). Ensure the GCP/cloud firewall allows UDP ingress on the configured port.
