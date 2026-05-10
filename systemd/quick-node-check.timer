@@ -1,5 +1,5 @@
 [Unit]
-Description=Quick-VLESS periodic check
+Description=Quick-Node periodic check
 
 [Timer]
 OnBootSec=5min

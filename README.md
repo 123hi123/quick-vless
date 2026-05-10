@@ -1,14 +1,15 @@
 # quick-node
 
-Rust CLI tool for managing VLESS + Reality proxy nodes on Linux VPS.
+Rust CLI tool for managing Shadowsocks 2022 proxy nodes on Linux VPS.
 
-One command to init, one command to create a user — get three share links instantly.
+One command to init, one command to create a user — get share links instantly.
 
 ## Features
 
-- **VLESS + Reality** (Xray-core) — strongest anti-detection, no domain/cert needed
-- **Three link formats** per user: VLESS URL, Clash subscription, SOCKS5
-- **Traffic & expiry control** — auto-disable users via systemd timer
+- **Shadowsocks 2022** (shadowsocks-rust) — `2022-blake3-aes-256-gcm`, modern and fast
+- **Multi-user** — single port, per-user identity PSK
+- **Two link formats** per user: SS URL, Clash subscription
+- **Expiry control** — auto-disable users via systemd timer
 - **Built-in HTTP server** — serves Clash YAML subscriptions
 - **Single binary** — no Python, no Node.js, no runtime dependencies
 
@@ -19,9 +20,9 @@ One command to init, one command to create a user — get three share links inst
 curl -sSL https://raw.githubusercontent.com/123hi123/quick-node/master/install.sh | bash
 
 # Initialize node
-quick-node init --port 443 --sni www.microsoft.com
+quick-node init --port 8388
 
-# Create a user (outputs 3 links)
+# Create a user (outputs share links)
 quick-node user add joe --expires 30d --traffic-limit 100GB
 ```
 
@@ -30,36 +31,31 @@ Output:
 ```
 === joe ===
 
-VLESS:
-  vless://uuid@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=...&sid=...&type=tcp#joe
+SS:
+  ss://MjAyMi1ibGFrZTMtYWVz...@1.2.3.4:8388#joe
 
 Clash Subscribe:
   http://1.2.3.4:8443/sub/token
-
-SOCKS5:
-  socks5://joe:password@1.2.3.4:1080
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `quick-node init` | Download Xray-core, generate Reality keys, setup systemd |
-| `quick-node user add <name>` | Create user, output 3 share links |
-| `quick-node user list` | List all users with traffic stats |
+| `quick-node init` | Download ssserver, generate keys, setup systemd |
+| `quick-node user add <name>` | Create user, output share links |
+| `quick-node user list` | List all users with status |
 | `quick-node user remove <name>` | Remove a user |
 | `quick-node refresh` | Re-detect public IP, update all links |
 | `quick-node status` | Show server status |
 | `quick-node serve` | Start HTTP subscription server |
-| `quick-node check` | Check traffic/expiry (called by timer) |
+| `quick-node check` | Check expiry (called by timer) |
 
 ### Init Options
 
 ```
 quick-node init [OPTIONS]
-  -p, --port <PORT>              VLESS port [default: 443]
-  -s, --sni <SNI>                Reality SNI target [default: www.microsoft.com]
-      --socks-port <SOCKS_PORT>  SOCKS5 port [default: 1080]
+  -p, --port <PORT>              SS port [default: 8388]
       --sub-port <SUB_PORT>      Subscription HTTP port [default: 8443]
       --ip <IP>                  Server IP (auto-detected if omitted)
 ```
@@ -77,28 +73,39 @@ quick-node user add <NAME> [OPTIONS]
 ```
 quick-node (single Rust binary)
 │
-├── Xray-core (VLESS + Reality + SOCKS5 inbounds)
-│   ├── port 443  → VLESS + Reality (TCP, Vision flow)
-│   └── port 1080 → SOCKS5 (shared, user/pass auth)
+├── ssserver (Shadowsocks 2022, single-port multi-user)
+│   └── port 8388 → 2022-blake3-aes-256-gcm
 │
 ├── HTTP subscription server
 │   └── port 8443 → GET /sub/{token} → Clash YAML
 │
 └── systemd timer (every 10min)
-    └── quick-node check → enforce traffic limits & expiry
+    └── quick-node check → enforce expiry
 ```
 
 ### Files on VPS
 
 ```
 /usr/local/bin/quick-node          # CLI binary
-/usr/local/bin/xray                 # Xray-core
+/usr/local/bin/ssserver            # shadowsocks-rust server
 /etc/quick-node/
-├── config.json                     # Node config (IP, keys, ports)
-├── users.json                      # User state (traffic, expiry)
-├── xray-config.json                # Generated Xray config
-└── subs/*.yaml                     # Per-user Clash subscription files
+├── config.json                    # Node config (IP, key, ports)
+├── users.json                     # User state (expiry, traffic)
+├── ss-config.json                 # Generated ssserver config
+└── subs/*.yaml                    # Per-user Clash subscription files
 ```
+
+## Client Compatibility
+
+SS 2022 (`2022-blake3-aes-256-gcm`) requires clients that support the protocol:
+
+- **Clash Meta / mihomo** — full support
+- **Shadowrocket** (iOS) — full support
+- **sing-box** — full support
+- **Surge** (macOS/iOS) — full support
+- **sslocal** (shadowsocks-rust) — full support
+
+Note: Original Clash (no longer maintained) does NOT support SS 2022.
 
 ## Build from Source
 

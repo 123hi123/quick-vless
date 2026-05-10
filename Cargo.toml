@@ -1,6 +1,6 @@
 [package]
-name = "quick-vless"
-version = "0.1.0"
+name = "quick-node"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -11,8 +11,6 @@ serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
 rand = "0.8"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }

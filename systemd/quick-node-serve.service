@@ -1,10 +1,10 @@
 [Unit]
-Description=Quick-VLESS Subscription Server
+Description=Quick-Node Subscription Server
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/quick-vless serve
+ExecStart=/usr/local/bin/quick-node serve
 Restart=on-failure
 RestartSec=5
 

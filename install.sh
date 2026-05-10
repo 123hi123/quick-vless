@@ -1,11 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO="123hi123/quick-vless"
-BIN_NAME="quick-vless"
+REPO="123hi123/quick-node"
+BIN_NAME="quick-node"
 INSTALL_DIR="/usr/local/bin"
 
-echo "=== Quick-VLESS Installer ==="
+echo "=== Quick-Node Installer ==="
 echo
 
 # Check root
@@ -17,7 +17,8 @@ fi
 # Detect arch
 ARCH=$(uname -m)
 case "$ARCH" in
-    x86_64) ASSET="quick-vless-x86_64-linux" ;;
+    x86_64) ASSET="quick-node-x86_64-linux" ;;
+    aarch64) ASSET="quick-node-aarch64-linux" ;;
     *)
         echo "Unsupported architecture: $ARCH"
         exit 1
@@ -33,6 +34,6 @@ chmod +x "$INSTALL_DIR/$BIN_NAME"
 echo "$BIN_NAME installed to $INSTALL_DIR/$BIN_NAME"
 echo
 echo "Next steps:"
-echo "  1. quick-vless init --port 443 --sni www.microsoft.com"
-echo "  2. quick-vless user add <name> --expires 30d"
+echo "  1. quick-node init --port 8388"
+echo "  2. quick-node user add <name> --expires 30d"
 echo

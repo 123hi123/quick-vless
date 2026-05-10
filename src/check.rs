@@ -3,20 +3,12 @@ use chrono::Utc;
 use colored::Colorize;
 
 use crate::config::AppConfig;
+use crate::ss;
 use crate::user::UsersState;
-use crate::xray;
 
 pub fn run_check() -> Result<()> {
     let config = AppConfig::load()?;
     let mut state = UsersState::load()?;
-
-    let stats = xray::query_stats(&config.xray_api_addr).unwrap_or_default();
-
-    for traffic in &stats {
-        if let Some(user) = state.users.iter_mut().find(|u| u.email == traffic.email) {
-            user.traffic_used_bytes += traffic.uplink + traffic.downlink;
-        }
-    }
 
     let now = Utc::now();
     let mut needs_reload = false;
@@ -49,9 +41,9 @@ pub fn run_check() -> Result<()> {
     state.save()?;
 
     if needs_reload {
-        config.generate_xray_config(&state.users)?;
-        xray::restart_xray()?;
-        println!("{} Xray config reloaded", "[CHECK]".green().bold());
+        config.generate_ss_config(&state.users)?;
+        ss::restart_ss()?;
+        println!("{} ssserver config reloaded", "[CHECK]".green().bold());
     }
 
     Ok(())

@@ -1,22 +1,21 @@
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-const USERS_PATH: &str = "/etc/quick-vless/users.json";
+use crate::ss;
+
+const USERS_PATH: &str = "/etc/quick-node/users.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub name: String,
-    pub uuid: Uuid,
-    pub email: String,
+    pub ss_key: String,
     pub created_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
     pub traffic_limit_bytes: u64,
     pub traffic_used_bytes: u64,
     pub enabled: bool,
     pub sub_token: String,
-    pub socks_pass: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -27,7 +26,7 @@ pub struct UsersState {
 impl UsersState {
     pub fn load() -> Result<Self> {
         let data = std::fs::read_to_string(USERS_PATH)
-            .context("Failed to read users.json. Run 'quick-vless init' first.")?;
+            .context("Failed to read users.json. Run 'quick-node init' first.")?;
         serde_json::from_str(&data).context("Invalid users.json")
     }
 
@@ -42,22 +41,25 @@ impl UsersState {
         state.save()
     }
 
-    pub fn add(&mut self, name: &str, expires: Option<DateTime<Utc>>, traffic_limit: u64) -> Result<&User> {
+    pub fn add(
+        &mut self,
+        name: &str,
+        expires: Option<DateTime<Utc>>,
+        traffic_limit: u64,
+    ) -> Result<&User> {
         if self.users.iter().any(|u| u.name == name) {
             bail!("User '{}' already exists", name);
         }
 
         let user = User {
             name: name.to_string(),
-            uuid: Uuid::new_v4(),
-            email: format!("{}@qv", name),
+            ss_key: ss::generate_key(),
             created_at: Utc::now(),
             expires_at: expires,
             traffic_limit_bytes: traffic_limit,
             traffic_used_bytes: 0,
             enabled: true,
             sub_token: generate_token(),
-            socks_pass: generate_token(),
         };
 
         self.users.push(user);
@@ -65,7 +67,10 @@ impl UsersState {
     }
 
     pub fn remove(&mut self, name: &str) -> Result<User> {
-        let idx = self.users.iter().position(|u| u.name == name)
+        let idx = self
+            .users
+            .iter()
+            .position(|u| u.name == name)
             .context(format!("User '{}' not found", name))?;
         Ok(self.users.remove(idx))
     }
@@ -73,7 +78,6 @@ impl UsersState {
     pub fn find(&self, name: &str) -> Option<&User> {
         self.users.iter().find(|u| u.name == name)
     }
-
 }
 
 fn generate_token() -> String {

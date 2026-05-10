@@ -1,69 +1,51 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
 use crate::config::AppConfig;
 use crate::user::User;
 
-pub fn vless_url(config: &AppConfig, user: &User) -> String {
+pub fn ss_url(config: &AppConfig, user: &User) -> String {
+    let userinfo = format!(
+        "2022-blake3-aes-256-gcm:{}:{}",
+        config.server_key, user.ss_key
+    );
+    let encoded = URL_SAFE_NO_PAD.encode(userinfo.as_bytes());
     format!(
-        "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
-        user.uuid,
-        config.server_ip,
-        config.vless_port,
-        config.server_name,
-        config.public_key,
-        config.short_id,
-        user.name,
-    )
-}
-
-pub fn socks5_url(config: &AppConfig, user: &User) -> String {
-    format!(
-        "socks5://{}:{}@{}:{}",
-        user.name,
-        user.socks_pass,
-        config.server_ip,
-        config.socks_port,
+        "ss://{}@{}:{}#{}",
+        encoded, config.server_ip, config.ss_port, user.name
     )
 }
 
 pub fn clash_sub_url(config: &AppConfig, user: &User) -> String {
     format!(
         "http://{}:{}/sub/{}",
-        config.server_ip,
-        config.sub_port,
-        user.sub_token,
+        config.server_ip, config.sub_port, user.sub_token,
     )
 }
 
 pub fn clash_yaml(config: &AppConfig, user: &User) -> String {
-    let proxy_name = format!("qv-{}", user.name);
+    let proxy_name = format!("qn-{}", user.name);
+    let password = format!("{}:{}", config.server_key, user.ss_key);
 
     serde_yaml::to_string(&serde_yaml::Value::Mapping({
         let mut root = serde_yaml::Mapping::new();
 
-        // proxies
         let mut proxy = serde_yaml::Mapping::new();
         proxy.insert(y("name"), y(&proxy_name));
-        proxy.insert(y("type"), y("vless"));
+        proxy.insert(y("type"), y("ss"));
         proxy.insert(y("server"), y(&config.server_ip));
-        proxy.insert(y("port"), serde_yaml::Value::Number(config.vless_port.into()));
-        proxy.insert(y("uuid"), y(&user.uuid.to_string()));
-        proxy.insert(y("network"), y("tcp"));
-        proxy.insert(y("tls"), serde_yaml::Value::Bool(true));
+        proxy.insert(
+            y("port"),
+            serde_yaml::Value::Number(config.ss_port.into()),
+        );
+        proxy.insert(y("cipher"), y("2022-blake3-aes-256-gcm"));
+        proxy.insert(y("password"), y(&password));
         proxy.insert(y("udp"), serde_yaml::Value::Bool(true));
-        proxy.insert(y("flow"), y("xtls-rprx-vision"));
-        proxy.insert(y("servername"), y(&config.server_name));
-        proxy.insert(y("client-fingerprint"), y("chrome"));
-
-        let mut reality_opts = serde_yaml::Mapping::new();
-        reality_opts.insert(y("public-key"), y(&config.public_key));
-        reality_opts.insert(y("short-id"), y(&config.short_id));
-        proxy.insert(y("reality-opts"), serde_yaml::Value::Mapping(reality_opts));
 
         root.insert(
             y("proxies"),
             serde_yaml::Value::Sequence(vec![serde_yaml::Value::Mapping(proxy)]),
         );
 
-        // proxy-groups
         let mut group = serde_yaml::Mapping::new();
         group.insert(y("name"), y("PROXY"));
         group.insert(y("type"), y("select"));
@@ -76,7 +58,6 @@ pub fn clash_yaml(config: &AppConfig, user: &User) -> String {
             serde_yaml::Value::Sequence(vec![serde_yaml::Value::Mapping(group)]),
         );
 
-        // rules
         root.insert(
             y("rules"),
             serde_yaml::Value::Sequence(vec![y("MATCH,PROXY")]),
@@ -112,13 +93,10 @@ pub fn print_links(config: &AppConfig, user: &User) {
     println!();
     println!("{}", format!("=== {} ===", user.name).bold());
     println!();
-    println!("{}", "VLESS:".cyan().bold());
-    println!("  {}", vless_url(config, user));
+    println!("{}", "SS:".cyan().bold());
+    println!("  {}", ss_url(config, user));
     println!();
     println!("{}", "Clash Subscribe:".green().bold());
     println!("  {}", clash_sub_url(config, user));
-    println!();
-    println!("{}", "SOCKS5:".yellow().bold());
-    println!("  {}", socks5_url(config, user));
     println!();
 }

@@ -1,0 +1,6 @@
+[Unit]
+Description=Quick-Node Check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/quick-node check

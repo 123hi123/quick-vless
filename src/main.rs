@@ -2,8 +2,8 @@ mod check;
 mod config;
 mod serve;
 mod share;
+mod ss;
 mod user;
-mod xray;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -13,7 +13,7 @@ use config::AppConfig;
 use user::UsersState;
 
 #[derive(Parser)]
-#[command(name = "quick-vless", version, about = "Manage VLESS + Reality proxy nodes")]
+#[command(name = "quick-node", version, about = "Manage Shadowsocks 2022 proxy nodes")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -21,19 +21,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize: download Xray-core, generate Reality keys, setup systemd
+    /// Initialize: download ssserver, generate keys, setup systemd
     Init {
-        /// VLESS listen port
-        #[arg(short, long, default_value = "443")]
+        /// Shadowsocks listen port
+        #[arg(short, long, default_value = "8388")]
         port: u16,
-
-        /// SNI target for Reality camouflage
-        #[arg(short, long, default_value = "www.microsoft.com")]
-        sni: String,
-
-        /// SOCKS5 listen port
-        #[arg(long, default_value = "1080")]
-        socks_port: u16,
 
         /// HTTP subscription server port
         #[arg(long, default_value = "8443")]
@@ -53,7 +45,7 @@ enum Commands {
     /// Re-detect public IP and update all links
     Refresh,
 
-    /// Run periodic check (traffic/expiry), called by systemd timer
+    /// Run periodic check (expiry), called by systemd timer
     Check,
 
     /// Show server status
@@ -94,11 +86,9 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Init {
             port,
-            sni,
-            socks_port,
             sub_port,
             ip,
-        } => cmd_init(port, sni, socks_port, sub_port, ip)?,
+        } => cmd_init(port, sub_port, ip)?,
 
         Commands::User { command } => match command {
             UserCommands::Add {
@@ -122,61 +112,47 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn cmd_init(
-    port: u16,
-    sni: String,
-    socks_port: u16,
-    sub_port: u16,
-    ip: Option<String>,
-) -> Result<()> {
-    println!("{}", "=== Quick-VLESS Init ===".bold());
+fn cmd_init(port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
+    println!("{}", "=== Quick-Node Init ===".bold());
 
     let server_ip = match ip {
         Some(ip) => ip,
         None => {
             println!("Detecting public IP...");
-            xray::detect_public_ip()?
+            ss::detect_public_ip()?
         }
     };
     println!("Server IP: {}", server_ip.green());
 
-    xray::download_xray()?;
+    ss::download_ssserver()?;
 
-    println!("Generating Reality keypair...");
-    let (private_key, public_key) = xray::generate_keypair();
-    let short_id = xray::generate_short_id();
+    println!("Generating server key...");
+    let server_key = ss::generate_key();
 
     let config = AppConfig {
         server_ip,
-        vless_port: port,
-        private_key,
-        public_key: public_key.clone(),
-        short_id: short_id.clone(),
-        server_name: sni.clone(),
-        xray_api_addr: "127.0.0.1:10085".to_string(),
+        ss_port: port,
+        server_key: server_key.clone(),
         sub_port,
-        socks_port,
     };
 
     config.save()?;
     UsersState::init()?;
-    config.generate_xray_config(&[])?;
+    config.generate_ss_config(&[])?;
 
     println!("Installing systemd units...");
-    xray::install_systemd_units()?;
+    ss::install_systemd_units()?;
 
     println!();
     println!("{}", "=== Init Complete ===".green().bold());
-    println!("  VLESS port:  {}", port);
-    println!("  SOCKS5 port: {}", socks_port);
-    println!("  Sub port:    {}", sub_port);
-    println!("  SNI:         {}", sni);
-    println!("  Public Key:  {}", public_key);
-    println!("  Short ID:    {}", short_id);
+    println!("  SS port:   {}", port);
+    println!("  Sub port:  {}", sub_port);
+    println!("  Method:    2022-blake3-aes-256-gcm");
+    println!("  ServerKey: {}", server_key);
     println!();
     println!(
         "Next: {} to create a user and get share links",
-        "quick-vless user add <name>".cyan()
+        "quick-node user add <name>".cyan()
     );
 
     Ok(())
@@ -195,12 +171,12 @@ fn cmd_user_add(name: &str, expires_str: &str, traffic_str: &str) -> Result<()> 
     let _user = state.add(name, expires_at, traffic_limit)?;
     state.save()?;
 
-    config.generate_xray_config(&state.users)?;
+    config.generate_ss_config(&state.users)?;
 
     let user = state.find(name).unwrap();
     share::save_clash_sub(&config, user)?;
 
-    xray::restart_xray()?;
+    ss::restart_ss()?;
 
     share::print_links(&config, user);
 
@@ -237,8 +213,8 @@ fn cmd_user_list() -> Result<()> {
         };
 
         println!("{} [{}]", user.name.bold(), status);
-        println!("  UUID:    {}", user.uuid);
-        println!("  Traffic: {} / {}",
+        println!(
+            "  Traffic: {} / {}",
             format_bytes(user.traffic_used_bytes),
             if user.traffic_limit_bytes > 0 {
                 format_bytes(user.traffic_limit_bytes)
@@ -256,7 +232,11 @@ fn cmd_user_list() -> Result<()> {
             } else {
                 format!("{}h left", remaining.num_hours())
             };
-            println!("  Expires: {} ({})", exp.format("%Y-%m-%d %H:%M UTC"), remaining_str);
+            println!(
+                "  Expires: {} ({})",
+                exp.format("%Y-%m-%d %H:%M UTC"),
+                remaining_str
+            );
         } else {
             println!("  Expires: never");
         }
@@ -274,13 +254,12 @@ fn cmd_user_remove(name: &str) -> Result<()> {
     let removed = state.remove(name)?;
     state.save()?;
 
-    config.generate_xray_config(&state.users)?;
+    config.generate_ss_config(&state.users)?;
 
-    // remove subscription file
     let sub_path = format!("{}/subs/{}.yaml", AppConfig::config_dir(), removed.sub_token);
     let _ = std::fs::remove_file(sub_path);
 
-    xray::restart_xray()?;
+    ss::restart_ss()?;
 
     println!("User '{}' removed.", name.yellow());
     Ok(())
@@ -291,14 +270,14 @@ fn cmd_refresh() -> Result<()> {
     let state = UsersState::load()?;
 
     println!("Detecting public IP...");
-    let new_ip = xray::detect_public_ip()?;
+    let new_ip = ss::detect_public_ip()?;
 
     if new_ip == config.server_ip {
         println!("IP unchanged: {}", new_ip.green());
         println!("No update needed.");
     } else {
         println!(
-            "IP changed: {} → {}",
+            "IP changed: {} -> {}",
             config.server_ip.red(),
             new_ip.green()
         );
@@ -319,25 +298,22 @@ fn cmd_status() -> Result<()> {
     let config = AppConfig::load()?;
     let state = UsersState::load()?;
 
-    let xray_running = xray::xray_status()?;
+    let ss_running = ss::ss_status()?;
 
-    println!("{}", "=== Quick-VLESS Status ===".bold());
+    println!("{}", "=== Quick-Node Status ===".bold());
     println!();
     println!(
-        "  Xray:     {}",
-        if xray_running {
+        "  ssserver: {}",
+        if ss_running {
             "running".green()
         } else {
             "stopped".red()
         }
     );
     println!("  Server:   {}", config.server_ip);
-    println!("  VLESS:    port {}", config.vless_port);
-    println!("  SOCKS5:   port {}", config.socks_port);
+    println!("  SS port:  {}", config.ss_port);
     println!("  Sub HTTP: port {}", config.sub_port);
-    println!("  SNI:      {}", config.server_name);
-    println!("  PubKey:   {}", config.public_key);
-    println!("  ShortID:  {}", config.short_id);
+    println!("  Method:   2022-blake3-aes-256-gcm");
     println!();
 
     let total = state.users.len();
