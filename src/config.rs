@@ -2,8 +2,6 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::user::User;
-
 const CONFIG_DIR: &str = "/etc/quick-node";
 const CONFIG_PATH: &str = "/etc/quick-node/config.json";
 const SS_CONFIG_PATH: &str = "/etc/quick-node/ss-config.json";
@@ -37,25 +35,12 @@ impl AppConfig {
         Ok(())
     }
 
-    pub fn generate_ss_config(&self, users: &[User]) -> Result<()> {
-        let mut all_users: Vec<serde_json::Value> = vec![json!({
-            "name": "__socks",
-            "password": self.socks_key
-        })];
-
-        all_users.extend(users.iter().filter(|u| u.enabled).map(|u| {
-            json!({
-                "name": u.name,
-                "password": u.ss_key
-            })
-        }));
-
+    pub fn generate_ss_config(&self) -> Result<()> {
         let config = json!({
             "server": "0.0.0.0",
             "server_port": self.ss_port,
             "method": "2022-blake3-aes-256-gcm",
             "password": self.server_key,
-            "users": all_users
         });
 
         std::fs::write(SS_CONFIG_PATH, serde_json::to_string_pretty(&config)?)?;
@@ -67,7 +52,7 @@ impl AppConfig {
             "server": "127.0.0.1",
             "server_port": self.ss_port,
             "method": "2022-blake3-aes-256-gcm",
-            "password": format!("{}:{}", self.server_key, self.socks_key),
+            "password": self.server_key.as_str(),
             "local_address": "0.0.0.0",
             "local_port": self.socks_port
         });

@@ -146,7 +146,7 @@ fn cmd_init(port: u16, socks_port: u16, sub_port: u16, ip: Option<String>) -> Re
 
     config.save()?;
     UsersState::init()?;
-    config.generate_ss_config(&[])?;
+    config.generate_ss_config()?;
     config.generate_sslocal_config()?;
 
     println!("Installing systemd units...");
@@ -181,12 +181,8 @@ fn cmd_user_add(name: &str, expires_str: &str, traffic_str: &str) -> Result<()> 
     let _user = state.add(name, expires_at, traffic_limit)?;
     state.save()?;
 
-    config.generate_ss_config(&state.users)?;
-
     let user = state.find(name).unwrap();
     share::save_clash_sub(&config, user)?;
-
-    ss::restart_ss()?;
 
     share::print_links(&config, user);
 
@@ -258,18 +254,13 @@ fn cmd_user_list() -> Result<()> {
 }
 
 fn cmd_user_remove(name: &str) -> Result<()> {
-    let config = AppConfig::load()?;
     let mut state = UsersState::load()?;
 
     let removed = state.remove(name)?;
     state.save()?;
 
-    config.generate_ss_config(&state.users)?;
-
     let sub_path = format!("{}/subs/{}.yaml", AppConfig::config_dir(), removed.sub_token);
     let _ = std::fs::remove_file(sub_path);
-
-    ss::restart_ss()?;
 
     println!("User '{}' removed.", name.yellow());
     Ok(())

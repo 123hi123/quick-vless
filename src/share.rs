@@ -5,8 +5,8 @@ use crate::user::User;
 
 pub fn ss_url(config: &AppConfig, user: &User) -> String {
     let userinfo = format!(
-        "2022-blake3-aes-256-gcm:{}:{}",
-        config.server_key, user.ss_key
+        "2022-blake3-aes-256-gcm:{}",
+        config.server_key
     );
     let encoded = URL_SAFE_NO_PAD.encode(userinfo.as_bytes());
     format!(
@@ -24,7 +24,7 @@ pub fn clash_sub_url(config: &AppConfig, user: &User) -> String {
 
 pub fn clash_yaml(config: &AppConfig, user: &User) -> String {
     let proxy_name = format!("qn-{}", user.name);
-    let password = format!("{}:{}", config.server_key, user.ss_key);
+    let password = config.server_key.clone();
 
     serde_yaml::to_string(&serde_yaml::Value::Mapping({
         let mut root = serde_yaml::Mapping::new();

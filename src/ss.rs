@@ -106,18 +106,6 @@ pub fn download_ssserver() -> Result<()> {
     Ok(())
 }
 
-pub fn restart_ss() -> Result<()> {
-    let status = Command::new("systemctl")
-        .args(["restart", "ssserver"])
-        .status()
-        .context("Failed to restart ssserver")?;
-
-    if !status.success() {
-        bail!("systemctl restart ssserver failed");
-    }
-    Ok(())
-}
-
 pub fn ss_status() -> Result<bool> {
     let status = Command::new("systemctl")
         .args(["is-active", "--quiet", "ssserver"])
