@@ -91,14 +91,18 @@ pub fn download_ssserver() -> Result<()> {
     }
 
     std::fs::copy(format!("{}/ssserver", tmp_dir), "/usr/local/bin/ssserver")?;
+    std::fs::copy(format!("{}/sslocal", tmp_dir), "/usr/local/bin/sslocal")?;
     Command::new("chmod")
         .args(["+x", "/usr/local/bin/ssserver"])
+        .status()?;
+    Command::new("chmod")
+        .args(["+x", "/usr/local/bin/sslocal"])
         .status()?;
 
     let _ = std::fs::remove_file(tmp_tar);
     let _ = std::fs::remove_dir_all(tmp_dir);
 
-    println!("ssserver installed to /usr/local/bin/ssserver");
+    println!("ssserver + sslocal installed to /usr/local/bin/");
     Ok(())
 }
 
@@ -122,6 +126,14 @@ pub fn ss_status() -> Result<bool> {
     Ok(status.map(|s| s.success()).unwrap_or(false))
 }
 
+pub fn sslocal_status() -> Result<bool> {
+    let status = Command::new("systemctl")
+        .args(["is-active", "--quiet", "sslocal"])
+        .status();
+
+    Ok(status.map(|s| s.success()).unwrap_or(false))
+}
+
 pub fn install_systemd_units() -> Result<()> {
     let ss_service = r#"[Unit]
 Description=Shadowsocks Server
@@ -133,6 +145,21 @@ ExecStart=/usr/local/bin/ssserver -c /etc/quick-node/ss-config.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+"#;
+
+    let sslocal_service = r#"[Unit]
+Description=Shadowsocks Local (SOCKS5 Bridge)
+After=ssserver.service
+Requires=ssserver.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/sslocal -c /etc/quick-node/sslocal-config.json
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -173,6 +200,7 @@ WantedBy=timers.target
 "#;
 
     std::fs::write("/etc/systemd/system/ssserver.service", ss_service)?;
+    std::fs::write("/etc/systemd/system/sslocal.service", sslocal_service)?;
     std::fs::write(
         "/etc/systemd/system/quick-node-serve.service",
         serve_service,
@@ -188,7 +216,12 @@ WantedBy=timers.target
 
     Command::new("systemctl").arg("daemon-reload").status()?;
 
-    for unit in &["ssserver", "quick-node-serve", "quick-node-check.timer"] {
+    for unit in &[
+        "ssserver",
+        "sslocal",
+        "quick-node-serve",
+        "quick-node-check.timer",
+    ] {
         Command::new("systemctl")
             .args(["enable", "--now", unit])
             .status()?;

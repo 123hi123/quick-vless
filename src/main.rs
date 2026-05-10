@@ -21,11 +21,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize: download ssserver, generate keys, setup systemd
+    /// Initialize: download ssserver + sslocal, generate keys, setup systemd
     Init {
         /// Shadowsocks listen port
         #[arg(short, long, default_value = "8388")]
         port: u16,
+
+        /// SOCKS5 listen port (via sslocal)
+        #[arg(long, default_value = "1080")]
+        socks_port: u16,
 
         /// HTTP subscription server port
         #[arg(long, default_value = "8443")]
@@ -86,9 +90,10 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Init {
             port,
+            socks_port,
             sub_port,
             ip,
-        } => cmd_init(port, sub_port, ip)?,
+        } => cmd_init(port, socks_port, sub_port, ip)?,
 
         Commands::User { command } => match command {
             UserCommands::Add {
@@ -112,7 +117,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn cmd_init(port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
+fn cmd_init(port: u16, socks_port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
     println!("{}", "=== Quick-Node Init ===".bold());
 
     let server_ip = match ip {
@@ -126,29 +131,34 @@ fn cmd_init(port: u16, sub_port: u16, ip: Option<String>) -> Result<()> {
 
     ss::download_ssserver()?;
 
-    println!("Generating server key...");
+    println!("Generating keys...");
     let server_key = ss::generate_key();
+    let socks_key = ss::generate_key();
 
     let config = AppConfig {
         server_ip,
         ss_port: port,
         server_key: server_key.clone(),
+        socks_port,
+        socks_key,
         sub_port,
     };
 
     config.save()?;
     UsersState::init()?;
     config.generate_ss_config(&[])?;
+    config.generate_sslocal_config()?;
 
     println!("Installing systemd units...");
     ss::install_systemd_units()?;
 
     println!();
     println!("{}", "=== Init Complete ===".green().bold());
-    println!("  SS port:   {}", port);
-    println!("  Sub port:  {}", sub_port);
-    println!("  Method:    2022-blake3-aes-256-gcm");
-    println!("  ServerKey: {}", server_key);
+    println!("  SS port:    {}", port);
+    println!("  SOCKS5:     {}", socks_port);
+    println!("  Sub port:   {}", sub_port);
+    println!("  Method:     2022-blake3-aes-256-gcm");
+    println!("  ServerKey:  {}", server_key);
     println!();
     println!(
         "Next: {} to create a user and get share links",
@@ -302,6 +312,8 @@ fn cmd_status() -> Result<()> {
 
     println!("{}", "=== Quick-Node Status ===".bold());
     println!();
+    let socks_running = ss::sslocal_status()?;
+
     println!(
         "  ssserver: {}",
         if ss_running {
@@ -310,8 +322,17 @@ fn cmd_status() -> Result<()> {
             "stopped".red()
         }
     );
+    println!(
+        "  sslocal:  {}",
+        if socks_running {
+            "running".green()
+        } else {
+            "stopped".red()
+        }
+    );
     println!("  Server:   {}", config.server_ip);
     println!("  SS port:  {}", config.ss_port);
+    println!("  SOCKS5:   port {}", config.socks_port);
     println!("  Sub HTTP: port {}", config.sub_port);
     println!("  Method:   2022-blake3-aes-256-gcm");
     println!();
